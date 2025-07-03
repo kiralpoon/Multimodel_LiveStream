@@ -30,3 +30,8 @@ coverage
 *.tsbuildinfo
 .VSCodeCounter
 .history
+
+# Environment variables
+.env
+.env.local
+.env.*.local

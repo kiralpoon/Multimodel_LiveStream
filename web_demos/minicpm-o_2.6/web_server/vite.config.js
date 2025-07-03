@@ -11,6 +11,7 @@ import Components from 'unplugin-vue-components/vite';
 import { ElementPlusResolver } from 'unplugin-vue-components/resolvers';
 import fs from 'fs';
 import path from 'path';
+import { getTargetUrl, getServerName } from './config.js';
 
 export default defineConfig({
     plugins: [
@@ -65,12 +66,12 @@ export default defineConfig({
         port: 8088,
         proxy: {
             '/api/v1': {
-                target: 'http://127.0.0.1:32550',
+                target: getTargetUrl(),
                 ws: true,
                 changeOrigin: true
             },
             '/ws': {
-                target: 'http://127.0.0.1:32550',
+                target: getTargetUrl(),
                 ws: true,
                 changeOrigin: true
             }
