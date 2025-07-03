@@ -1,0 +1,28 @@
+# Original requirements from requirements_o2.6.txt
+Pillow==10.1.0
+torch==2.3.1
+torchaudio==2.3.1
+torchvision==0.18.1
+flash_attn>=2.5.8
+transformers==4.44.2
+sentencepiece==0.2.0
+vector-quantize-pytorch==1.18.5
+vocos==0.1.0
+accelerate==1.2.1
+timm==0.9.10
+soundfile==0.12.1
+librosa==0.9.0
+decord
+moviepy
+
+# for web demo
+aiofiles==23.2.1
+onnxruntime==1.20.1
+fastapi
+uvicorn
+gradio==4.44.1
+pydantic==2.10.6
+
+# Fish Audio integration
+python-dotenv==1.0.0
+httpx==0.27.0 
