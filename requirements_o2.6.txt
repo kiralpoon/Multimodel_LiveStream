@@ -2,6 +2,7 @@ Pillow==10.1.0
 torch==2.3.1
 torchaudio==2.3.1
 torchvision==0.18.1
+flash_attn>=2.5.8
 transformers==4.44.2
 sentencepiece==0.2.0
 vector-quantize-pytorch==1.18.5
@@ -19,5 +20,5 @@ onnxruntime==1.20.1
 fastapi
 uvicorn
 gradio==4.44.1
-http://thunlp.oss-cn-qingdao.aliyuncs.com/multi_modal/never_delete/modelscope_studio-0.4.0.9-py3-none-any.whl
+# http://thunlp.oss-cn-qingdao.aliyuncs.com/multi_modal/never_delete/modelscope_studio-0.4.0.9-py3-none-any.whl
 pydantic==2.10.6

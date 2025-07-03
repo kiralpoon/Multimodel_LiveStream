@@ -542,11 +542,11 @@ with gr.Blocks(css=css) as demo:
     with gr.Tab("How to use"):
         with gr.Column():
             with gr.Row():
-                image_example = gr.Image(value="http://thunlp.oss-cn-qingdao.aliyuncs.com/multi_modal/never_delete/m_bear2.gif", label='1. Chat with single or multiple images', interactive=False, width=400, elem_classes="example")
-                example2 = gr.Image(value="http://thunlp.oss-cn-qingdao.aliyuncs.com/multi_modal/never_delete/video2.gif", label='2. Chat with video', interactive=False, width=400, elem_classes="example")
-                example3 = gr.Image(value="http://thunlp.oss-cn-qingdao.aliyuncs.com/multi_modal/never_delete/fshot.gif", label='3. Few shot', interactive=False, width=400, elem_classes="example")
+                image_example = gr.Image(value=None, label='1. Chat with single or multiple images', interactive=False, width=400, elem_classes="example")
+                example2 = gr.Image(value=None, label='2. Chat with video', interactive=False, width=400, elem_classes="example")
+                example3 = gr.Image(value=None, label='3. Few shot', interactive=False, width=400, elem_classes="example")
 
 
 # launch
-demo.launch(share=False, debug=True, show_api=False, server_port=8000, server_name="0.0.0.0")
+demo.launch(share=False, debug=True, show_api=False, server_port=7860, server_name="0.0.0.0")
 

@@ -27,19 +27,43 @@
             <div class="output-content">
                 <ModelOutput v-if="outputData.length > 0" :outputData="outputData" containerClass="output-content" />
             </div>
-            <div class="skip-box">
-                <DelayTips
-                    v-if="delayTimestamp > 200 || delayCount > 2"
-                    :delayTimestamp="delayTimestamp"
-                    :delayCount="delayCount"
-                />
-                <LikeAndDislike v-model:feedbackStatus="feedbackStatus" v-model:curResponseId="curResponseId" />
-                <SkipBtn :disabled="skipDisabled" @click="skipVoice" />
-            </div>
+                            <div class="skip-box">
+                    <DelayTips
+                        v-if="delayTimestamp > 200 || delayCount > 2"
+                        :delayTimestamp="delayTimestamp"
+                        :delayCount="delayCount"
+                    />
+                    <!-- Performance Timing Display -->
+                    <div v-if="timingStats && isCalling" class="timing-stats">
+                        <div class="timing-title">⏱️ Performance</div>
+                        <div class="timing-row highlight">
+                            <span class="timing-label">Response:</span>
+                            <span class="timing-value">{{ timingStats.userResponseTime > 0 ? timingStats.userResponseTime + 'ms' : 'Ready' }}</span>
+                        </div>
+                        <div class="timing-row">
+                            <span class="timing-label">ASR:</span>
+                            <span class="timing-value">{{ timingStats.asr }}ms</span>
+                        </div>
+                        <div class="timing-row">
+                            <span class="timing-label">LLM:</span>
+                            <span class="timing-value">{{ timingStats.llm }}ms</span>
+                        </div>
+                        <div class="timing-row">
+                            <span class="timing-label">TTS:</span>
+                            <span class="timing-value">{{ timingStats.tts }}ms</span>
+                        </div>
+                        <div class="timing-row total">
+                            <span class="timing-label">Backend:</span>
+                            <span class="timing-value">{{ timingStats.total }}ms</span>
+                        </div>
+                    </div>
+                    <LikeAndDislike v-model:feedbackStatus="feedbackStatus" v-model:curResponseId="curResponseId" />
+                    <SkipBtn :disabled="skipDisabled" @click="skipVoice" />
+                </div>
         </div>
         <div class="voice-page-btn">
             <el-button v-show="!isCalling" type="success" :disabled="callDisabled" @click="initRecording">
-                {{ callDisabled ? 'Not ready yet, please wait' : 'Call MiniCPM' }}
+                {{ callDisabled ? 'Not ready yet, please wait' : 'Call Local AI' }}
             </el-button>
             <el-button v-show="isCalling" @click="stopRecording" type="danger">
                 <SvgIcon name="phone-icon" className="phone-icon" />
@@ -92,6 +116,18 @@
     const delayCount = ref(0); // 当前剩余多少ms未发送到接口
 
     const modelVersion = ref('');
+    
+    // Performance timing stats
+    const timingStats = ref({
+        asr: 0,
+        llm: 0,
+        tts: 0,
+        total: 0,
+        userResponseTime: 0 // Time from user stops speaking to AI starts speaking
+    });
+    
+    // Timing variables for user response measurement
+    let userSpeechEndTime = null;
 
     let audioDOM = new Audio();
 
@@ -106,22 +142,29 @@
     const vadStart = async () => {
         myvad = await MicVAD.new({
             onSpeechStart: () => {
-                console.log('Speech start detected');
-                if (!skipDisabled.value) {
+                console.log('🎤 Speech start detected:', +new Date());
+                // Reset timing when user starts speaking again
+                userSpeechEndTime = null;
+                
+                // Only handle interruption if the setting is enabled
+                if (localStorage.getItem('canStopByVoice') === 'true') {
                     vadTimer && clearTimeout(vadTimer);
                     vadTimer = setTimeout(() => {
-                        console.log('打断时间: ', +new Date());
+                        console.log('⚡ Speech interruption triggered:', +new Date());
                         skipVoice();
                     }, 500);
                 }
             },
             onSpeechEnd: audio => {
                 vadTimer && clearTimeout(vadTimer);
+                const speechEndTime = Date.now();
+                userSpeechEndTime = speechEndTime;
+                console.log('🎤 Speech end detected:', speechEndTime, '- Response timer STARTED');
                 // debugger;
                 // do something with `audio` (Float32Array of audio samples at sample rate 16000)...
-            }
+            },
+            baseAssetPath: '/'
         });
-        console.log('vad: ', myvad);
         myvad.start();
     };
     onMounted(async () => {
@@ -159,9 +202,11 @@
                 socket.connect();
                 // 建立连接后稍等一会儿再传送数据
                 startRecording();
-                if (localStorage.getItem('canStopByVoice') === 'true') {
-                    vadStart();
-                }
+                
+                // Always start VAD for response timing measurement
+                // This is independent of the Speech Interruption setting
+                console.log('Starting VAD for response timing measurement...');
+                vadStart();
             })
             .catch(() => {});
     };
@@ -370,7 +415,39 @@
                     curResponseId.value = data.response_id;
                 }
                 if (data.choices[0]?.text) {
-                    textQueue.value += data.choices[0].text.replace('<end>', '');
+                    const text = data.choices[0].text;
+                    
+                    // Extract timing information from text (non-blocking)
+                    try {
+                        const timingMatch = text.match(/<timing>(.*?)<\/timing>/);
+                        if (timingMatch) {
+                            const timingString = timingMatch[1];
+                            console.log('Timing info received:', timingString);
+                            
+                            // Parse timing data: "⏱️ ASR: 123ms | LLM: 456ms | TTS: 789ms | Total: 1234ms"
+                            const asrMatch = timingString.match(/ASR: ([\d.]+)ms/);
+                            const llmMatch = timingString.match(/LLM: ([\d.]+)ms/);
+                            const ttsMatch = timingString.match(/TTS: ([\d.]+)ms/);
+                            const totalMatch = timingString.match(/Total: ([\d.]+)ms/);
+                            
+                            if (asrMatch || llmMatch || ttsMatch || totalMatch) {
+                                timingStats.value = {
+                                    asr: asrMatch ? parseFloat(asrMatch[1]) : timingStats.value.asr,
+                                    llm: llmMatch ? parseFloat(llmMatch[1]) : timingStats.value.llm,
+                                    tts: ttsMatch ? parseFloat(ttsMatch[1]) : timingStats.value.tts,
+                                    total: totalMatch ? parseFloat(totalMatch[1]) : timingStats.value.total
+                                };
+                            }
+                        }
+                    } catch (error) {
+                        console.warn('Timing extraction error:', error);
+                    }
+                    
+                    // Remove timing tags and process text normally
+                    const cleanText = text.replace(/<timing>.*?<\/timing>/g, '').replace('<end>', '');
+                    if (cleanText.trim()) {
+                        textQueue.value += cleanText;
+                    }
                     console.warn('text return time -------------------------------', +new Date());
                 }
                 // 首次返回的是前端发给后端的音频片段，需要单独处理
@@ -406,7 +483,9 @@
                     buildConnect();
                 }
                 if (data.choices[0].text.includes('<end>')) {
+                    isEnd.value = true; // Make sure isEnd is set to true
                     console.log('收到结束标记了:', +new Date());
+                    console.log('Setting isEnd = true, audio queue length:', audioPlayQueue.value.length);
                     if (
                         outputData.value[outputData.value.length - 1]?.type === 'BOT' &&
                         outputData.value[outputData.value.length - 1].audio === '' &&
@@ -552,8 +631,22 @@
 
     // 播放音频
     const truePlay = async voice => {
+        console.log('promise: ', +new Date());
         return new Promise(resolve => {
             audioDOM.src = 'data:audio/wav;base64,' + voice;
+            
+            // Capture when audio actually starts playing
+            const playStartTime = Date.now();
+            
+            // Calculate user response time from speech end to audio start
+            if (userSpeechEndTime) {
+                const userResponseTime = playStartTime - userSpeechEndTime;
+                timingStats.value.userResponseTime = userResponseTime;
+                console.log('🔊 AI Response started playing:', playStartTime);
+                console.log('⏱️ USER RESPONSE TIME:', userResponseTime + 'ms (from speech end to AI audio start)');
+                userSpeechEndTime = null; // Reset for next measurement
+            }
+            
             console.error('播放开始时间:', +new Date());
             audioDOM
                 .play()
@@ -756,6 +849,75 @@
                 align-items: center;
                 justify-content: flex-end;
                 margin-top: 16px;
+                flex-wrap: wrap;
+                gap: 10px;
+                
+                .timing-stats {
+                    background: rgba(100, 127, 255, 0.1);
+                    border: 1px solid rgba(100, 127, 255, 0.3);
+                    border-radius: 8px;
+                    padding: 8px 12px;
+                    margin-right: auto;
+                    min-width: 200px;
+                    
+                    .timing-title {
+                        font-weight: 600;
+                        font-size: 13px;
+                        color: #647fff;
+                        margin-bottom: 4px;
+                    }
+                    
+                    .timing-row {
+                        display: flex;
+                        justify-content: space-between;
+                        font-size: 12px;
+                        line-height: 1.3;
+                        
+                        .timing-label {
+                            color: #666;
+                            font-weight: 500;
+                        }
+                        
+                        .timing-value {
+                            color: #333;
+                            font-weight: 600;
+                            font-family: monospace;
+                        }
+                        
+                                                    &.highlight {
+                                background: rgba(255, 165, 0, 0.15);
+                                border-radius: 4px;
+                                padding: 4px 6px;
+                                margin: 2px -6px;
+                                
+                                .timing-label {
+                                    color: #ff8c00;
+                                    font-weight: 700;
+                                }
+                                
+                                .timing-value {
+                                    color: #ff6600;
+                                    font-weight: 700;
+                                }
+                            }
+                            
+                            &.total {
+                                border-top: 1px solid rgba(100, 127, 255, 0.2);
+                                padding-top: 2px;
+                                margin-top: 2px;
+                                
+                                .timing-label {
+                                    color: #647fff;
+                                    font-weight: 600;
+                                }
+                                
+                                .timing-value {
+                                    color: #647fff;
+                                    font-weight: 700;
+                                }
+                            }
+                    }
+                }
             }
         }
         &-btn {

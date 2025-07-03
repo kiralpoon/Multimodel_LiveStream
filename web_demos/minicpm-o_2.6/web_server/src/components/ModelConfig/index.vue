@@ -170,7 +170,7 @@
     const fileName = ref('');
 
     const configData = ref({
-        canStopByVoice: false,
+        canStopByVoice: false,  // This only controls speech interruption, not timing
         videoQuality: false,
         useAudioPrompt: 1,
         vadThreshold: 0.8,
@@ -217,6 +217,16 @@
         { immediate: true }
     );
     onMounted(() => {
+        // Initialize from localStorage
+        const savedConfig = localStorage.getItem('configData');
+        if (savedConfig) {
+            try {
+                const parsed = JSON.parse(savedConfig);
+                Object.assign(configData.value, parsed);
+            } catch (e) {
+                console.warn('Failed to parse saved config:', e);
+            }
+        }
         handleSetStorage();
     });
     const handleSelectTimbre = e => {

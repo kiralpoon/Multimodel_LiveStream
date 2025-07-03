@@ -73,14 +73,14 @@ class StreamManager:
         self.stream_started = False
         self.stop_response = False
 
-        # VAD settings
+        # VAD settings - RESTORED TO ORIGINAL VALUES
         self.vad_options = vad_utils.VadOptions()
-        self.vad_sequence_length = 5
+        self.vad_sequence_length = 5  # Restored original value
         self.vad_sequence = []
         self.audio_prefill = []
         self.audio_input = []
         self.image_prefill = None
-        self.audio_chunk = 200
+        self.audio_chunk = 200  # Restored original value
 
         # customized options
         self.customized_audio = None
@@ -89,6 +89,14 @@ class StreamManager:
         # Omni model
         self.target_dtype = torch.bfloat16
         self.device='cuda:0'
+        
+        # Performance timing
+        self.timing_stats = {
+            'asr_time': 0.0,
+            'llm_time': 0.0, 
+            'tts_time': 0.0,
+            'total_time': 0.0
+        }
         
         self.minicpmo_model_path = args.model #"openbmb/MiniCPM-o-2_6"
         self.model_version = "2.6"
@@ -211,13 +219,16 @@ class StreamManager:
         logger.info(f'msg_type is {msg_type}')
         if msg_type <= 1: #audio
             audio_voice_clone_prompt = "Use the voice in the audio prompt to synthesize new content."
-            audio_assistant_prompt = "You are a helpful assistant with the above voice style."
+            audio_assistant_prompt = "You are a helpful assistant with the above voice style. IMPORTANT: Always respond in English only, regardless of the language of the user's input."
             ref_path = self.ref_path_default
 
             
             if self.customized_options is not None:
                 audio_voice_clone_prompt = self.customized_options['voice_clone_prompt']
                 audio_assistant_prompt = self.customized_options['assistant_prompt']
+                # Ensure English-only instruction is always present
+                if "Always respond in English only" not in audio_assistant_prompt:
+                    audio_assistant_prompt += " IMPORTANT: Always respond in English only, regardless of the language of the user's input."
                 if self.customized_options['use_audio_prompt'] == 1:
                     ref_path = self.ref_path_default
                 elif self.customized_options['use_audio_prompt'] == 2:
@@ -228,13 +239,16 @@ class StreamManager:
             audio_prompt, sr = librosa.load(ref_path, sr=16000, mono=True)
             sys_msg = {'role': 'user', 'content': [audio_voice_clone_prompt + "\n", audio_prompt, "\n" + audio_assistant_prompt]}
         elif msg_type == 2: #video
-            voice_clone_prompt="你是一个AI助手。你能接受视频，音频和文本输入并输出语音和文本。模仿输入音频中的声音特征。"
-            assistant_prompt="作为助手，你将使用这种声音风格说话。"
+            voice_clone_prompt="You are an AI assistant. You can accept video, audio and text input and output speech and text. Mimic the voice characteristics of the input audio."
+            assistant_prompt="As an assistant, you will speak with this voice style. IMPORTANT: Always respond in English only, regardless of the language of the user's input."
             ref_path = self.ref_path_video_default
             
             if self.customized_options is not None:
                 voice_clone_prompt = self.customized_options['voice_clone_prompt']
                 assistant_prompt = self.customized_options['assistant_prompt']
+                # Ensure English-only instruction is always present
+                if "Always respond in English only" not in assistant_prompt:
+                    assistant_prompt += " IMPORTANT: Always respond in English only, regardless of the language of the user's input."
                 if self.customized_options['use_audio_prompt'] == 1:
                     ref_path = self.ref_path_default
                 elif self.customized_options['use_audio_prompt'] == 2:
@@ -437,6 +451,10 @@ class StreamManager:
                     return True
             if (len(self.audio_prefill) == (1000/self.audio_chunk)) or (is_end and len(self.audio_prefill)>0):
                 time_prefill = time.time()
+                
+                # ASR Timing Start
+                asr_start_time = time.time()
+                
                 input_audio_path = self.savedir + f"/input_audio_log/input_audio_{self.input_audio_id}.wav"
                 self.merge_wav_files(self.audio_prefill, input_audio_path)
                 with open(input_audio_path,"rb") as wav_io:
@@ -469,6 +487,9 @@ class StreamManager:
                             tokenizer=self.minicpmo_tokenizer,
                             max_slice_nums=slice_nums,
                         )
+                
+                # ASR Timing End
+                self.timing_stats['asr_time'] = round((time.time() - asr_start_time) * 1000, 1)  # Convert to ms
 
                 self.input_audio_id += 1
             return True
@@ -493,6 +514,10 @@ class StreamManager:
             return
 
         self.flag_decode = True
+        
+        # Total pipeline timing start
+        total_start_time = time.time()
+        
         try:
             with torch.no_grad():
                 logger.info("=== model gen start ===")
@@ -509,8 +534,8 @@ class StreamManager:
                 
                 print('=== gen start: ', time.time() - time_gen)
                 first_time = True
-                temp_time = time.time()
-                temp_time1 = time.time()
+                llm_start_time = time.time()  # LLM timing start
+                
                 with torch.inference_mode():
                     if self.stop_response:
                         self.generate_end()
@@ -520,16 +545,32 @@ class StreamManager:
                     msgs = [msg]
                     text = ''
                     self.speaking_time_stamp = time.time()
+                    
+                    first_token_time = None
+                    tts_start_time = None
+                    total_tts_time = 0
+                    
                     try:
                         for r in self.minicpmo_model.streaming_generate(
                             session_id=str(self.session_id),
                             tokenizer=self.minicpmo_tokenizer,
                             generate_audio=True,
+                            max_new_tokens=75,  # Optimized for fast, concise responses
                             # enable_regenerate=True,
                         ):
                             if self.stop_response:
                                 self.generate_end()
                                 return
+                            
+                            # Record first token time (LLM inference complete for first chunk)
+                            if first_token_time is None:
+                                first_token_time = time.time()
+                                self.timing_stats['llm_time'] = round((first_token_time - llm_start_time) * 1000, 1)
+                            
+                            # TTS timing start for each chunk
+                            if tts_start_time is None:
+                                tts_start_time = time.time()
+                                
                             audio_np, sr, text = r["audio_wav"], r["sampling_rate"], r["text"]
 
                             output_audio_path = self.savedir + f'/output_audio_log/output_audio_{self.output_audio_id}.wav'
@@ -541,13 +582,25 @@ class StreamManager:
                                     audio_stream = wav_file.read()
                             except FileNotFoundError:
                                 print(f"File {output_audio_path} not found.")
-                            temp_time1 = time.time()
+                            
+                            # Accumulate TTS time
+                            if tts_start_time is not None:
+                                total_tts_time += time.time() - tts_start_time
+                                tts_start_time = time.time()  # Reset for next chunk
+                            
                             print('text: ', text)
                             yield base64.b64encode(audio_stream).decode('utf-8'), text
                             self.speaking_time_stamp += self.cycle_wait_time
+                            
                     except Exception as e:
                         logger.error(f"Error happened during generation: {str(e)}")
-                    yield None, '\n<end>'
+                    
+                    # Final TTS timing
+                    self.timing_stats['tts_time'] = round(total_tts_time * 1000, 1)
+                    
+                    # Send timing stats with final message
+                    timing_msg = f"⏱️ ASR: {self.timing_stats['asr_time']}ms | LLM: {self.timing_stats['llm_time']}ms | TTS: {self.timing_stats['tts_time']}ms | Total: {round((time.time() - total_start_time) * 1000, 1)}ms"
+                    yield None, f'\n<end><timing>{timing_msg}</timing>'
 
         except Exception as e:
             logger.error(f"发生异常:{e}")

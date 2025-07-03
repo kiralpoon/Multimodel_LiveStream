@@ -1,7 +1,8 @@
 <template>
     <div class="home-page">
         <div class="home-page-header">
-            <div class="home-page-header-logo">
+            <!-- Logo removed as requested -->
+            <div class="home-page-header-logo" style="display: none;">
                 <!-- <img src="@/assets/images/logo.png" /> -->
                 <SvgIcon name="miniCPM2.6" class="logo-icon" />
             </div>
